@@ -22,6 +22,16 @@ curl http://127.0.0.1:3000/v1/chat/completions \
   -d '{"model":"glm-5.3-flash","messages":[{"role":"user","content":"你好"}]}'
 ```
 
+## 管理页
+
+`GET http://127.0.0.1:3000/admin` 提供管理状态页：
+
+- **会话池**：总数/可用/冷却统计 + 明细表（设备/角色/状态/过期）+ 导入（粘贴 token）/ 删除
+- **使用统计**：总请求/成功/失败/限流 + 按模型聚合
+- **配置**：端口/默认模型/API key 状态/数据文件
+
+对应 JSON API：`/admin/api/status`、`/admin/api/sessions`（POST 导入 / DELETE 删除）。
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |

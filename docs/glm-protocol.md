@@ -223,6 +223,12 @@ Body（OpenAI 兼容）:
 
 `chats/` 体系（`chats/new` 创建会话、`chats/remix`）、`users/` 系列、`index/` 系列（检索）、`share/` 系列、`file/` 系列、`audio/`、`images/`、`pipelines/`、`retrieval`、`utils/parser/` 等。前端对话不走 chats 时用 `/api/v2/chat/completions`。
 
+## ⚠️ 上游更新（2026-09-10 巡检）
+
+- 前端 bundle：`main.888d80b8.js` → `main.be18f4bd.js`（更新）
+- **X-Sign secret 未变**：`8a1317a7468aa3ad86e997d08f3f31cb`（签名兼容 ✅）
+- **对话路径重构（确认方向）**：`backend-api/assistant` 子路径只剩辅助功能（file/upload、create、info 等），**`assistant/stream` 已废弃**；出现新接口 `backend-api/v1/stream_context?__requestid=`（通用 POST，含 __requestid）。对话 body 关键字段（assistant_id/conversation_id/chat_mode）仍在 bundle 中，**对话 URL 的确切新路径待真实环境实测确认**（当前 IP 被 guest 风控无法验证；glm2api `STREAM_URL` 保持旧值，真实验证时用浏览器 hook 抓新 URL 后适配）。
+
 ## 结论
 
 **匿名调用 GLM 完全可行**（auth 无 PoW、models OpenAI 兼容、对话接口标准 SSE），唯一硬障碍是阿里云滑块 captcha 的自动化过验证。这决定 glm2api 是否走"匿名模式"（每次对话前过滑块）还是结合其他通道。障碍明确、可评估、可决策。
