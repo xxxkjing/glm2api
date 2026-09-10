@@ -1,0 +1,72 @@
+# glm2api
+
+GLM 网页版 → OpenAI 兼容网关（匿名模式，无需登录、无需 cookie）。
+
+逆向 chatglm.cn（智谱清言）访客协议实现：匿名对话免费调用 GLM-5.3-Flash 等模型，对外暴露 OpenAI 兼容接口（`/v1/models`、`/v1/chat/completions`）。
+
+> ⚠️ 仅供学习研究。上游免费通道有频率限制，请合理使用。
+
+## 快速开始
+
+```bash
+# 1. 准备访客会话（从浏览器 cookie 导入）
+#    打开 https://chatglm.cn 匿名聊天后，把 cookie 里的 chatglm_token 写入 data/glm2api.json：
+#    {"sessions": [{"token": "<chatglm_token>", "deviceId": "<可选>"}]}
+
+# 2. 启动
+npm start   # 默认 http://127.0.0.1:3000
+
+# 3. OpenAI 兼容调用
+curl http://127.0.0.1:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"glm-5.3-flash","messages":[{"role":"user","content":"你好"}]}'
+```
+
+## 环境变量
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `PORT` | `3000` | 监听端口 |
+| `GLM2API_KEY` | 空 | 设置后要求 `Authorization: Bearer <key>`（未设置则开放） |
+| `GLM2API_DATA_FILE` | `./data/glm2api.json` | 访客会话池持久化文件 |
+| `GLM2API_MODEL` | `glm-5.3-flash` | 默认模型 |
+
+## 架构
+
+```
+OpenAI 客户端 → /v1/chat/completions
+                     ↓
+           openai-routes.js（流式/非流式转发）
+                     ↓
+             glm-chat.js（上游 SSE 调用）
+                     ↓
+            guest-session.js（会话池轮换/冷却）
+                     ↓
+      chatglm.cn backend-api/assistant/stream（匿名）
+```
+
+模块：
+
+- `src/services/glm-sign.js` — X-Sign 签名（MD5(timestamp-nonce-secret)，协议逆向自上游）
+- `src/services/guest-session.js` — 访客会话池（过期检测 / 轮换 / 限流冷却 30min 自动恢复 / JSON 持久化）
+- `src/services/glm-chat.js` — 上游对话客户端（SSE 解析 / 思考内容提取 / 消息归一化）
+- `src/services/rate-limiter.js` — 滑动窗口限流（防触发上游风控）
+- `src/routes/openai-routes.js` — OpenAI 兼容路由（models + chat/completions）
+- `src/server.js` — HTTP 服务 + API key 鉴权 + 会话池加载/保存
+
+## 协议
+
+见 `docs/glm-protocol.md`（匿名认证 / X-Sign / 对话接口 / 限流边界完整逆向记录）。
+
+## 限流与风控（重要）
+
+- guest 会话有频率限制：连续调用触发上游 `40012`，会话进入冷却（30 分钟自动恢复）
+- 访客身份绑定设备指纹，简单清 cookie 无法刷新
+- 多轮为无状态（messages 携带历史），无需会话上下文管理
+- 生产使用建议：多会话池 + 频率控制 + 优雅降级
+
+## 测试
+
+```bash
+npm test   # 26 个用例（签名/会话/SSE 解析/限流/网关）
+```
