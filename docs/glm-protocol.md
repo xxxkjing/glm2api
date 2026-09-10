@@ -223,11 +223,29 @@ Body（OpenAI 兼容）:
 
 `chats/` 体系（`chats/new` 创建会话、`chats/remix`）、`users/` 系列、`index/` 系列（检索）、`share/` 系列、`file/` 系列、`audio/`、`images/`、`pipelines/`、`retrieval`、`utils/parser/` 等。前端对话不走 chats 时用 `/api/v2/chat/completions`。
 
+## 🎯 匿名对话可行性实测（2026-09-11 浏览器+curl 双通道）
+
+**结论：匿名对话未下线，但 API 直调三重风控（IP/Token/会话），浏览器页面不受影响。**
+
+实测事实链（浏览器 + curl 对照）：
+1. **对话 URL 未变**：浏览器页面每次对话真实请求 = `POST /chatglm/backend-api/assistant/stream`（performance 确认，新 bundle 中该字符串拆分混淆导致此前误判"路径重构"——已修正）
+2. **匿名可用**：浏览器"访客_aea68d"页面发"你好，请回复OK"→ 回复"OK"；再发"你好"→ 回复正常 ✅
+3. **curl 直调可成功一次**：新 token（浏览器 cookie 里拿的）+ 浏览器会话 conv_id → **200 SSE 4895B**（回复"收到"），SSE 格式与 glm-chat.js `extractDelta` 完全匹配（`parts[].role=assistant content[].type=text`）
+4. **curl 后续立即被风控**：同 token 连打多次 → 40102 unauthorized / 40012 bad request（IP 与 token 双重标记）
+5. **conversation_id 必须有效**：随机新 conv_id → **40004 bad request**；必须用会话列表里的真实 conv_id（`backend-api/v1/conversation` 或 `mainchat-api/conversation/recent_list` 获取）
+6. **token 寿命**：浏览器 cookie token（设备 fdb7fb2d…，exp 21h）页面使用正常；API 直调触发风控后 40102（待验证冷却后是否恢复）
+
+**glm2api 适配要求**：
+- 对话前需**预创建/获取有效 conversation_id**（不能随机生成）
+- 请求**频控退避**：每次成功后冷却（上游对连续 API 直调敏感）
+- 会话池 token 轮换仍是正确方向，但**每个 token 的可用次数可能极低**（需实测冷却恢复）
+
 ## ⚠️ 上游更新（2026-09-10 巡检）
 
 - 前端 bundle：`main.888d80b8.js` → `main.be18f4bd.js`（更新）
 - **X-Sign secret 未变**：`8a1317a7468aa3ad86e997d08f3f31cb`（签名兼容 ✅）
 - **对话路径重构（确认方向）**：`backend-api/assistant` 子路径只剩辅助功能（file/upload、create、info 等），**`assistant/stream` 已废弃**；出现新接口 `backend-api/v1/stream_context?__requestid=`（通用 POST，含 __requestid）。对话 body 关键字段（assistant_id/conversation_id/chat_mode）仍在 bundle 中，**对话 URL 的确切新路径待真实环境实测确认**（当前 IP 被 guest 风控无法验证；glm2api `STREAM_URL` 保持旧值，真实验证时用浏览器 hook 抓新 URL 后适配）。
+- **🚨 高风险（2026-09-10 实测）**：`backend-api/v1/stream_context` 用旧 guest token 返回 **40103 "You need login to access this resource"**（签名通过、要求登录）；新 bundle 中旧对话 body 字段（`selected_model`/`message_version`/`is_networking`）**0 处**——**guest 匿名对话可能已被上游下线（需登录）**。结论待定：① 可能只是接口迁移（guest 有别的端点）② 也可能匿名通道确实移除。**若确认匿名下线 → glm2api 匿名方案不可行，需通知用户决策（登录账号模式 / 放弃 / 换目标）**。
 
 ## 结论
 

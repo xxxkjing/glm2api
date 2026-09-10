@@ -387,6 +387,7 @@ function makeId() {
 }
 
 function makeConversationId() {
-  // 25 位 hex：13 位时间戳 + 12 位随机
-  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 14)}`;
+  // 25 位 hex：13 位时间戳 hex + 12 位随机（对齐上游格式 6aa33e6df49fe6bb2f286f02）
+  const ts = Date.now().toString(16).padStart(13, "0").slice(0, 13);
+  return `${ts}${Math.random().toString(16).slice(2, 14)}`.slice(0, 25);
 }

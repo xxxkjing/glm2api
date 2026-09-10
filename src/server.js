@@ -11,7 +11,8 @@ function loadSessionPool() {
   try {
     if (existsSync(config.dataFile)) {
       const data = JSON.parse(readFileSync(config.dataFile, "utf8"));
-      return GuestSessionPool.fromJSON(data.sessions ?? []);
+      // data 是完整池对象 {sessions, cooling}
+      return GuestSessionPool.fromJSON(data);
     }
   } catch (error) {
     console.error("load session pool failed:", error.message);

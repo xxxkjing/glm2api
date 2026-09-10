@@ -7,7 +7,7 @@
 //   node scripts/import-session.js "eyJhbGciOiJIUzI1NiIs..."
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { GuestSession, GuestSessionPool } from "../src/services/guest-session.js";
+import { GuestSession, GuestSessionPool, decodeJwtPayload } from "../src/services/guest-session.js";
 
 const dataFile = process.env.GLM2API_DATA_FILE ?? resolve("./data/glm2api.json");
 const raw = process.argv[2];
@@ -45,7 +45,7 @@ if (pool.sessions.some((s) => s.token === token)) {
   process.exit(0);
 }
 
-const session = new GuestSession({ token });
+const session = new GuestSession({ token, deviceId: decodeJwtPayload(token)?.device_id ?? undefined });
 pool.add(session);
 
 mkdirSync(dirname(dataFile), { recursive: true });
