@@ -122,6 +122,11 @@ function buildStatusPayload(sessionPool) {
     defaultModel: config.defaultModel,
     apiKeyEnabled: Boolean(config.apiKey),
     stats: buildStatsPayload(),
+    config: {
+      port: config.port,
+      dataFile: config.dataFile,
+      modelCount: config.models.length
+    },
     sessions
   };
 }
@@ -176,6 +181,17 @@ function renderAdminPage(sessionPool) {
     </div>
     ${status.stats.byModel.length ? `<p style="margin-top:10px;font-size:0.85rem">${status.stats.byModel.map((m) => `${m.model}: ${m.requests} 次（成功 ${m.success}）`).join(' · ')}</p>` : '<p style="margin-top:10px;font-size:0.85rem;color:#999">暂无请求 — 调用 /v1/chat/completions 后显示</p>'}
     <p style="font-size:0.8rem;color:#666">运行 ${Math.floor(status.stats.uptimeSeconds / 60)} 分钟</p>
+  </div>
+  <div class="card">
+    <h3>配置</h3>
+    <table>
+      <tr><td>端口</td><td><code>${status.config.port}</code></td></tr>
+      <tr><td>默认模型</td><td><code>${status.defaultModel}</code></td></tr>
+      <tr><td>模型数</td><td>${status.config.modelCount}</td></tr>
+      <tr><td>API Key</td><td>${status.apiKeyEnabled ? '已启用（要求 Bearer 鉴权）' : '未启用（开放）'}</td></tr>
+      <tr><td>会话数据文件</td><td><code>${status.config.dataFile}</code></td></tr>
+      <tr><td>上游通道</td><td>chatglm.cn 匿名访客（国内站，无 captcha，IP 限流）</td></tr>
+    </table>
   </div>
   <div class="card">
     <h3>导入会话</h3>
