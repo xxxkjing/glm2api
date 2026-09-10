@@ -21,6 +21,18 @@ export async function handleOpenAiRequest(request, response, url, {
     return true;
   }
 
+  if (url.pathname === "/admin" && request.method === "GET") {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(renderAdminPage(sessionPool));
+    return true;
+  }
+
+  if (url.pathname === "/admin/api/status" && request.method === "GET") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(buildStatusPayload(sessionPool)));
+    return true;
+  }
+
   if (url.pathname === "/v1/chat/completions" && request.method === "POST") {
     const body = await readJsonBody(request);
     await handleChatCompletion(request, response, body, { sessionPool, streamChat });
@@ -28,6 +40,83 @@ export async function handleOpenAiRequest(request, response, url, {
   }
 
   return false;
+}
+
+function buildStatusPayload(sessionPool) {
+  const now = Date.now();
+  const sessions = sessionPool.sessions.map((s) => {
+    const until = sessionPool.cooling.get(s.token);
+    const cooling = until !== undefined && until > now;
+    return {
+      deviceId: s.deviceId?.slice(0, 8),
+      role: s.role,
+      expiresAt: s.expiresAt,
+      expired: s.isExpired(now),
+      cooling,
+      coolingUntil: cooling ? sessionPool.cooling.get(s.token) : null
+    };
+  });
+  return {
+    sessionCount: sessionPool.size,
+    availableSessions: sessionPool.availableSize(now),
+    coolingSessions: Array.from(sessionPool.cooling.keys()).length,
+    models: config.models.map((m) => m.id),
+    defaultModel: config.defaultModel,
+    apiKeyEnabled: Boolean(config.apiKey),
+    sessions
+  };
+}
+
+function renderAdminPage(sessionPool) {
+  const status = buildStatusPayload(sessionPool);
+  return `<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>glm2api · 管理</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 720px; padding: 0 1rem; background: #111; color: #eee; }
+    h1 { font-size: 1.5rem; }
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+    .stat { background: #222; border-radius: 6px; padding: 10px; }
+    .stat b { display: block; font-size: 1.4rem; }
+    .stat span { color: #999; font-size: 0.8rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    td, th { padding: 6px 8px; border-bottom: 1px solid #333; text-align: left; }
+    .ok { color: #4caf50; } .warn { color: #ff9800; } .bad { color: #f44336; }
+    code { background: #222; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>glm2api 管理</h1>
+  <div class="card">
+    <div class="grid">
+      <div class="stat"><b>${status.sessionCount}</b><span>会话总数</span></div>
+      <div class="stat"><b class="${status.availableSessions > 0 ? 'ok' : 'warn'}">${status.availableSessions}</b><span>可用会话</span></div>
+      <div class="stat"><b>${status.coolingSessions}</b><span>冷却中</span></div>
+      <div class="stat"><b>${status.models.length}</b><span>模型数</span></div>
+    </div>
+    <p style="margin-top:12px">
+      默认模型 <code>${status.defaultModel}</code> · API Key ${status.apiKeyEnabled ? '已启用' : '未启用（开放）'}
+    </p>
+  </div>
+  <div class="card">
+    <h3>会话池</h3>
+    <table>
+      <tr><th>设备</th><th>角色</th><th>状态</th><th>过期</th></tr>
+      ${status.sessions.length ? status.sessions.map((s) => `
+        <tr>
+          <td><code>${s.deviceId}…</code></td>
+          <td>${s.role}</td>
+          <td class="${s.cooling ? 'bad' : s.expired ? 'warn' : 'ok'}">${s.cooling ? '冷却中' : s.expired ? '已过期' : '可用'}</td>
+          <td>${new Date(s.expiresAt).toLocaleString()}</td>
+        </tr>`).join('') : '<tr><td colspan="4">暂无会话 — 用 scripts/import-session.js 导入</td></tr>'}
+    </table>
+  </div>
+</body>
+</html>`;
 }
 
 async function handleChatCompletion(request, response, body, { sessionPool, streamChat }) {
