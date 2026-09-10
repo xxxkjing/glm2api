@@ -37,6 +37,33 @@ function get(path) {
   });
 }
 
+function mutate(path, method, payload) {
+  return new Promise((resolve, reject) => {
+    const server = createServer(async (req, res) => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      await handleOpenAiRequest(req, res, url, { sessionPool: makePool() });
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      const body = payload ? JSON.stringify(payload) : null;
+      const req = request({
+        hostname: "127.0.0.1", port, path, method,
+        headers: body ? { "content-type": "application/json", "content-length": Buffer.byteLength(body) } : {}
+      }, (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          server.close();
+          resolve({ status: res.statusCode, body: data });
+        });
+      });
+      req.on("error", reject);
+      if (body) req.write(body);
+      req.end();
+    });
+  });
+}
+
 test("GET /admin returns HTML status page", async () => {
   const { status, headers, body } = await get("/admin");
   assert.equal(status, 200);
@@ -57,4 +84,33 @@ test("GET /admin/api/status returns session pool info", async () => {
   // t2 标记为冷却
   const t2 = body.sessions.find((s) => s.deviceId === "d2222222");
   assert.equal(t2.cooling, true);
+});
+
+test("POST /admin/api/sessions imports a session", async () => {
+  const { status, body: raw } = await mutate("/admin/api/sessions", "POST", {
+    token: "eyJhbGciOiJIUzI1NiJ9.eyJpc19ndWVzdCI6dHJ1ZX0.sig"
+  });
+  assert.equal(status, 200);
+  const body = JSON.parse(raw);
+  assert.equal(body.ok, true);
+  assert.equal(body.sessionCount, 3);
+});
+
+test("POST /admin/api/sessions rejects invalid token", async () => {
+  const { status } = await mutate("/admin/api/sessions", "POST", { token: "not-a-jwt" });
+  assert.equal(status, 400);
+});
+
+test("DELETE /admin/api/sessions/:device removes session", async () => {
+  const { status, body: raw } = await mutate("/admin/api/sessions/d1111111", "DELETE");
+  assert.equal(status, 200);
+  const body = JSON.parse(raw);
+  assert.equal(body.removed, 1);
+});
+
+test("admin page includes import UI", async () => {
+  const { body } = await get("/admin");
+  assert.match(body, /导入会话/);
+  assert.match(body, /importSession/);
+  assert.match(body, /删除/);
 });

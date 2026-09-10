@@ -33,6 +33,35 @@ export async function handleOpenAiRequest(request, response, url, {
     return true;
   }
 
+  if (url.pathname === "/admin/api/sessions" && request.method === "POST") {
+    // 导入访客会话
+    const body = await readJsonBody(request);
+    const token = body?.token;
+    if (!token || !String(token).startsWith("eyJ")) {
+      return sendError(response, 400, "Invalid token (must be a JWT starting with eyJ)");
+    }
+    if (sessionPool.sessions.some((s) => s.token === token)) {
+      return sendError(response, 409, "Session already exists");
+    }
+    const { GuestSession } = await import("../services/guest-session.js");
+    sessionPool.add(new GuestSession({ token }));
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true, sessionCount: sessionPool.size }));
+    return true;
+  }
+
+  if (url.pathname.startsWith("/admin/api/sessions/") && request.method === "DELETE") {
+    // 删除会话（按 deviceId 前缀）
+    const devicePrefix = url.pathname.split("/").pop();
+    const before = sessionPool.size;
+    sessionPool.sessions = sessionPool.sessions.filter(
+      (s) => !s.deviceId?.startsWith(devicePrefix)
+    );
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true, removed: before - sessionPool.size }));
+    return true;
+  }
+
   if (url.pathname === "/v1/chat/completions" && request.method === "POST") {
     const body = await readJsonBody(request);
     await handleChatCompletion(request, response, body, { sessionPool, streamChat });
@@ -87,6 +116,11 @@ function renderAdminPage(sessionPool) {
     td, th { padding: 6px 8px; border-bottom: 1px solid #333; text-align: left; }
     .ok { color: #4caf50; } .warn { color: #ff9800; } .bad { color: #f44336; }
     code { background: #222; padding: 2px 6px; border-radius: 4px; }
+    button { background: #333; color: #eee; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+    button:hover { background: #444; }
+    input[type=text] { background: #222; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 8px; width: 100%; box-sizing: border-box; font-family: monospace; font-size: 0.8rem; }
+    .row { display: flex; gap: 8px; margin-top: 8px; }
+    .msg { font-size: 0.85rem; margin-top: 8px; min-height: 1em; }
   </style>
 </head>
 <body>
@@ -103,18 +137,50 @@ function renderAdminPage(sessionPool) {
     </p>
   </div>
   <div class="card">
+    <h3>导入会话</h3>
+    <input id="token-input" type="text" placeholder="粘贴 chatglm_token（eyJ...）">
+    <div class="row">
+      <button onclick="importSession()">导入</button>
+      <span class="msg" id="import-msg"></span>
+    </div>
+  </div>
+  <div class="card">
     <h3>会话池</h3>
-    <table>
-      <tr><th>设备</th><th>角色</th><th>状态</th><th>过期</th></tr>
+    <table id="session-table">
+      <tr><th>设备</th><th>角色</th><th>状态</th><th>过期</th><th></th></tr>
       ${status.sessions.length ? status.sessions.map((s) => `
         <tr>
           <td><code>${s.deviceId}…</code></td>
           <td>${s.role}</td>
           <td class="${s.cooling ? 'bad' : s.expired ? 'warn' : 'ok'}">${s.cooling ? '冷却中' : s.expired ? '已过期' : '可用'}</td>
           <td>${new Date(s.expiresAt).toLocaleString()}</td>
-        </tr>`).join('') : '<tr><td colspan="4">暂无会话 — 用 scripts/import-session.js 导入</td></tr>'}
+          <td><button onclick="removeSession('${s.deviceId}')">删除</button></td>
+        </tr>`).join('') : '<tr><td colspan="5">暂无会话 — 上面导入</td></tr>'}
     </table>
   </div>
+  <script>
+    async function importSession() {
+      const input = document.getElementById('token-input');
+      const msg = document.getElementById('import-msg');
+      if (!input.value.trim()) { msg.textContent = '请输入 token'; return; }
+      try {
+        const res = await fetch('/admin/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: input.value.trim() })
+        });
+        const data = await res.json();
+        if (res.ok) { msg.textContent = '✅ 导入成功，共 ' + data.sessionCount + ' 个会话'; input.value = ''; }
+        else { msg.textContent = '❌ ' + (data.error?.message || '导入失败'); }
+        setTimeout(() => location.reload(), 600);
+      } catch (e) { msg.textContent = '❌ ' + e; }
+    }
+    async function removeSession(deviceId) {
+      if (!confirm('删除该会话？')) return;
+      await fetch('/admin/api/sessions/' + deviceId, { method: 'DELETE' });
+      location.reload();
+    }
+  </script>
 </body>
 </html>`;
 }
