@@ -3,6 +3,35 @@ import { config } from "../config.js";
 import { streamChat as defaultStreamChat } from "../services/glm-chat.js";
 import { GuestSessionPool } from "../services/guest-session.js";
 
+// 请求统计（内存）
+const stats = {
+  totalRequests: 0,
+  successRequests: 0,
+  failedRequests: 0,
+  rateLimitedRequests: 0,
+  byModel: new Map(),
+  startedAt: Date.now()
+};
+
+function recordRequest({ model, success, rateLimited = false }) {
+  stats.totalRequests += 1;
+  if (success) {
+    stats.successRequests += 1;
+  } else {
+    stats.failedRequests += 1;
+  }
+  if (rateLimited) {
+    stats.rateLimitedRequests += 1;
+  }
+  const key = model ?? "unknown";
+  const entry = stats.byModel.get(key) ?? { requests: 0, success: 0 };
+  entry.requests += 1;
+  if (success) {
+    entry.success += 1;
+  }
+  stats.byModel.set(key, entry);
+}
+
 export async function handleOpenAiRequest(request, response, url, {
   sessionPool,
   streamChat = defaultStreamChat
@@ -92,6 +121,7 @@ function buildStatusPayload(sessionPool) {
     models: config.models.map((m) => m.id),
     defaultModel: config.defaultModel,
     apiKeyEnabled: Boolean(config.apiKey),
+    stats: buildStatsPayload(),
     sessions
   };
 }
@@ -135,6 +165,17 @@ function renderAdminPage(sessionPool) {
     <p style="margin-top:12px">
       默认模型 <code>${status.defaultModel}</code> · API Key ${status.apiKeyEnabled ? '已启用' : '未启用（开放）'}
     </p>
+  </div>
+  <div class="card">
+    <h3>使用统计</h3>
+    <div class="grid">
+      <div class="stat"><b>${status.stats.totalRequests}</b><span>总请求</span></div>
+      <div class="stat"><b class="ok">${status.stats.successRequests}</b><span>成功</span></div>
+      <div class="stat"><b class="${status.stats.failedRequests ? 'bad' : ''}">${status.stats.failedRequests}</b><span>失败</span></div>
+      <div class="stat"><b class="${status.stats.rateLimitedRequests ? 'warn' : ''}">${status.stats.rateLimitedRequests}</b><span>限流</span></div>
+    </div>
+    ${status.stats.byModel.length ? `<p style="margin-top:10px;font-size:0.85rem">${status.stats.byModel.map((m) => `${m.model}: ${m.requests} 次（成功 ${m.success}）`).join(' · ')}</p>` : '<p style="margin-top:10px;font-size:0.85rem;color:#999">暂无请求 — 调用 /v1/chat/completions 后显示</p>'}
+    <p style="font-size:0.8rem;color:#666">运行 ${Math.floor(status.stats.uptimeSeconds / 60)} 分钟</p>
   </div>
   <div class="card">
     <h3>导入会话</h3>
@@ -193,6 +234,7 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
 
   const session = sessionPool.take();
   if (!session) {
+    recordRequest({ model, success: false, rateLimited: true });
     return sendError(response, 429, "No available guest session (rate limited or expired)");
   }
 
@@ -262,6 +304,7 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
         fullContent += ev.content;
       }
     }
+    recordRequest({ model, success: true });
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       id: makeId(),
@@ -277,8 +320,20 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
     }));
   } catch (error) {
     sessionPool.markRateLimited(session.token);
+    recordRequest({ model, success: false });
     sendError(response, 502, `Upstream error: ${error.message}`);
   }
+}
+
+function buildStatsPayload() {
+  return {
+    totalRequests: stats.totalRequests,
+    successRequests: stats.successRequests,
+    failedRequests: stats.failedRequests,
+    rateLimitedRequests: stats.rateLimitedRequests,
+    byModel: Array.from(stats.byModel.entries()).map(([model, s]) => ({ model, ...s })),
+    uptimeSeconds: Math.floor((Date.now() - stats.startedAt) / 1000)
+  };
 }
 
 function readJsonBody(request) {
