@@ -1,9 +1,12 @@
 // OpenAI 兼容路由：/v1/models + /v1/chat/completions
 import { config } from "../config.js";
-import { streamChat } from "../services/glm-chat.js";
+import { streamChat as defaultStreamChat } from "../services/glm-chat.js";
 import { GuestSessionPool } from "../services/guest-session.js";
 
-export async function handleOpenAiRequest(request, response, url, { sessionPool }) {
+export async function handleOpenAiRequest(request, response, url, {
+  sessionPool,
+  streamChat = defaultStreamChat
+}) {
   if (url.pathname === "/v1/models" && request.method === "GET") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
@@ -20,14 +23,14 @@ export async function handleOpenAiRequest(request, response, url, { sessionPool 
 
   if (url.pathname === "/v1/chat/completions" && request.method === "POST") {
     const body = await readJsonBody(request);
-    await handleChatCompletion(request, response, body, { sessionPool });
+    await handleChatCompletion(request, response, body, { sessionPool, streamChat });
     return true;
   }
 
   return false;
 }
 
-async function handleChatCompletion(request, response, body, { sessionPool }) {
+async function handleChatCompletion(request, response, body, { sessionPool, streamChat }) {
   const model = body.model ?? config.defaultModel;
   const messages = body.messages ?? [];
   const stream = body.stream === true;
