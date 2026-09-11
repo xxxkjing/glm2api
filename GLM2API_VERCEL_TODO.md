@@ -13,8 +13,8 @@
 - [x] 5. 存储适配：Vercel 无状态 → 会话池/限流状态用 GLM2API_SESSIONS 环境变量注入（JSON 字符串）；冷却状态内存级，实例回收丢失（多实例容错）
 - [x] 6. 本地验证：`node --test "test/*.test.js"` 40/40 全绿（含新增 vercel-handler.test.js 3 例）
 - [x] 7. 测试：npm test 保持全绿 + 新增 Vercel handler 适配测试；scripts/ 真实浏览器脚本拆到 `npm run test:browser` 避免拖垮单元测试
-- [ ] 8. 文档：README 增加 Vercel 部署章节 + deploy 脚本（参考 deploy_vercel.py）→ 进行中
-- [ ] 9. 部署验证：用 Vercel API 直推部署（需要 glm2api 的 PROJECT_ID；可复用 deepseek2api-vercel 的 TOKEN，新建 project 或用现有）
+- [x] 8. 文档：README 增加 Vercel 部署章节 + deploy 脚本（参考 deploy_vercel.py）→ 基础版已写（README 含 Vercel 部署段）；deploy_vercel.py 脚本待补 → 视用户决定
+- [ ] 9. 部署验证：用 Vercel API 直推部署（需要 glm2api 的 PROJECT_ID；可复用 deepseek2api-vercel 的 TOKEN，新建 project 或用现有）→ **待用户确认：用户 2026-09-11 说"推到 github 上就行"，可能 Vercel 部署不用了**
 
 ## 关键点
 

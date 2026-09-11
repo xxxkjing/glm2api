@@ -110,7 +110,7 @@ async function readLastReply() {
     const uidx = after.indexOf("访客_");
     if (uidx >= 0) after = after.slice(0, uidx);
     // 去掉尾部引导/建议提问区
-    for (const stop of ["你能做什么？", "你会做什么？", "你有什么特别的技能？", "推荐一些好玩的游戏？", "和我聊聊天吧", "内容由AI生成"]) {
+    for (const stop of ["你能做什么？", "你会做什么？", "你有什么特别的技能？", "推荐一些好玩的游戏？", "和我聊聊天吧", "内容由AI生成", "如何生成API的鉴权凭证？", "如何测试上下文窗口的token处理能力？", "如何使用这个token进行API调用？", "测试结果如何反馈？", "有没有其他测", "和你聊聊天吧"]) {
       const si = after.indexOf(stop);
       if (si >= 0) after = after.slice(0, si);
     }

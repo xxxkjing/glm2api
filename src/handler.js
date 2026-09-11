@@ -24,6 +24,40 @@ const MIME = {
   ".woff2": "font/woff2"
 };
 
+// 简版根页面：Render/Vercel 部署后打开域名不 404，给个引导
+function renderRootPage() {
+  const port = config.port ?? 3000;
+  const hasKey = Boolean(config.apiKey);
+  return `<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>glm2api · running</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 640px; padding: 0 1rem; background: #111; color: #eee; }
+    h1 { font-size: 1.4rem; }
+    code { background: #222; padding: 2px 6px; border-radius: 4px; }
+    a { color: #6ab0ff; }
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+  </style>
+</head>
+<body>
+  <h1>glm2api 运行中 ✅</h1>
+  <div class="card">
+    <p>GLM 网页版 → OpenAI 兼容网关</p>
+    <p>服务端口 <code>${port}</code> · API Key ${hasKey ? "已启用（需要 Bearer 鉴权）" : "未启用（开放）"}</p>
+  </div>
+  <div class="card">
+    <p>· 模型列表 <code>GET /v1/models</code></p>
+    <p>· 对话 <code>POST /v1/chat/completions</code></p>
+    <p>· 管理页 <a href="/admin">/admin</a></p>
+  </div>
+  <p style="color:#777;font-size:0.85rem">匿名 GLM 网页通道，仅供学习研究 · 上游限流时请合理使用</p>
+</body>
+</html>`;
+}
+
 function serveStatic(request, response, pathname) {
   try {
     const base = join(process.cwd(), "public");
@@ -75,6 +109,12 @@ export function createHandler({ sessionPool, browserChat = null }) {
         browserChat: typeof browserChat === "function" ? browserChat : null
       });
       if (!handled) {
+        // 根路径：返回内置状态页（Render/Vercel 打开域名不 404）
+        if (url.pathname === "/" || url.pathname === "/index.html") {
+          response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          response.end(renderRootPage());
+          return;
+        }
         if (!serveStatic(request, response, url.pathname)) {
           response.writeHead(404, { "content-type": "application/json" });
           response.end(JSON.stringify({ error: { message: "Not Found" } }));
