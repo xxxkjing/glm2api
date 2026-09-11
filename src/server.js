@@ -1,14 +1,27 @@
-// glm2api 服务入口
+// glm2api 服务入口（本地运行）
 import { createServer } from "node:http";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { config } from "./config.js";
-import { GuestSessionPool, GuestSession } from "./services/guest-session.js";
-import { handleOpenAiRequest } from "./routes/openai-routes.js";
-import { chatStream as browserChat } from "./services/browser-driver.js";
+import { GuestSessionPool } from "./services/guest-session.js";
+import { createHandler } from "./handler.js";
 
 function loadSessionPool() {
+  // Vercel 无持久磁盘：支持从环境变量 GLM2API_SESSIONS 注入会话池（JSON 字符串）
+  const envRaw = process.env.GLM2API_SESSIONS;
+  if (envRaw && envRaw.trim()) {
+    try {
+      const parsed = JSON.parse(envRaw);
+      const pool = GuestSessionPool.fromJSON(
+        typeof parsed === "object" && parsed.sessions ? parsed : { sessions: parsed }
+      );
+      console.log(`[glm2api] loaded ${pool.size} guest sessions from GLM2API_SESSIONS env`);
+      return pool;
+    } catch (error) {
+      console.error("GLM2API_SESSIONS parse failed, falling back to file:", error.message);
+    }
+  }
   try {
     if (existsSync(config.dataFile)) {
       const data = JSON.parse(readFileSync(config.dataFile, "utf8"));
@@ -30,21 +43,15 @@ function saveSessionPool(pool) {
   }
 }
 
-function checkAuth(request) {
-  if (!config.apiKey) {
-    return true; // 未配置 key 则开放
-  }
-  const header = request.headers.authorization ?? "";
-  return header === `Bearer ${config.apiKey}`;
-}
-
 const sessionPool = loadSessionPool();
-console.log(`[glm2api] loaded ${sessionPool.size} guest sessions from ${config.dataFile}`);
+console.log(`[glm2api] loaded ${sessionPool.size} guest sessions`);
 
 // 浏览器模式：启动时预初始化浏览器（避免首次请求冷启动超时）
+let browserChatImpl = null;
 if (config.browserMode) {
-  import("./services/browser-driver.js").then(({ initBrowser }) => {
+  import("./services/browser-driver.js").then(({ initBrowser, chatStream }) => {
     initBrowser().then(() => {
+      browserChatImpl = chatStream;
       console.log("[glm2api] browser driver ready");
     }).catch((error) => {
       console.error("[glm2api] browser driver init failed:", error.message);
@@ -52,32 +59,20 @@ if (config.browserMode) {
   });
 }
 
-const server = createServer(async (request, response) => {
-  const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-
-  if (!checkAuth(request)) {
-    response.writeHead(401, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: { message: "Invalid API key" } }));
-    return;
+// 包装成可直接调用的函数；浏览器未就绪时抛错走 500
+function browserChatCallable(options) {
+  if (!browserChatImpl) {
+    const err = new Error("browser driver not ready");
+    throw err;
   }
+  return browserChatImpl(options);
+}
 
-  try {
-    const handled = await handleOpenAiRequest(request, response, url, {
-      sessionPool,
-      browserChat: config.browserMode ? browserChat : null
-    });
-    if (!handled) {
-      response.writeHead(404, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: { message: "Not Found" } }));
-    }
-  } catch (error) {
-    console.error("request error:", error);
-    if (!response.headersSent) {
-      response.writeHead(500, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: { message: "Internal Server Error" } }));
-    }
-  }
+const handler = createHandler({
+  sessionPool,
+  browserChat: config.browserMode ? browserChatCallable : null
 });
+const server = createServer(handler);
 
 server.listen(config.port, () => {
   console.log(`[glm2api] listening on http://127.0.0.1:${config.port}`);
@@ -91,4 +86,4 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-export { GuestSession, sessionPool };
+export { sessionPool };

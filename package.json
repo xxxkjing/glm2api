@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test \"test/*.test.js\"",
+    "test:browser": "node --test scripts/test-browser-driver.mjs scripts/test-rotate.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.63.0"

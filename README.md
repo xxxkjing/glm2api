@@ -59,6 +59,29 @@ GLM2API_BROWSER=1 node src/server.js
 | `GLM2API_DATA_FILE` | `./data/glm2api.json` | 访客会话池持久化文件 |
 | `GLM2API_MODEL` | `glm-5.3-flash` | 默认模型 |
 
+## Vercel 部署
+
+glm2api 可部署到 Vercel Serverless（替代易被封的 CF Worker）。
+
+**适配结构**：
+- `src/handler.js` — `createHandler()`（鉴权 + CORS + OpenAI 路由 + 静态文件），本地与 Vercel 共用
+- `api/index.js` — Vercel Serverless 入口（从环境变量注入会话池）
+- `vercel.json` — 全部路由指向 api/index.js
+
+**部署步骤**：
+
+1. 准备一个可用访客 token（从浏览器匿名对话 cookie 取 `chatglm_token`）
+2. Vercel 项目设置环境变量：
+   - `GLM2API_SESSIONS` = `{"sessions":[{"token":"<chatglm_token>"}]}`（JSON 字符串，单 token 即可）
+   - `GLM2API_KEY` = 你的 API Key（可选，设置后要求 Bearer 鉴权）
+3. 推送代码到 Git 仓库，Vercel 自动部署；或运行 `python3 deploy_vercel.py` 走 API 直推（需 PROJECT_ID）
+
+**注意**：
+- Vercel 无持久磁盘：会话池/限流冷却只存内存，实例回收即丢失（多实例容错，token 失效需更新环境变量）
+- 浏览器模式（方案 C）在 Vercel 不可用（无真实浏览器）
+- 免费版 serverless 10s 超时：建议客户端用 `stream=true`（首 token 2-4s），非流式聚合有超时风险
+- 环境变量限制：Vercel env 单值最长 4KB，放 1-2 个优先 token 足够
+
 ## 架构
 
 ```
