@@ -341,7 +341,7 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
       created: Math.floor(Date.now() / 1000),
       model,
       choices: [{ index: 0, message: { role: "assistant", content: fullContent }, finish_reason: "stop" }],
-      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      usage: buildUsage(messages, fullContent)
     }));
     return;
   }
@@ -455,7 +455,7 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
         message,
         finish_reason: hasToolCalls ? "tool_calls" : "stop"
       }],
-      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+        usage: buildUsage(messages, cleanContent)
     }));
   } catch (error) {
     sessionPool.markRateLimited(session.token);
@@ -531,9 +531,37 @@ function readJsonBody(request) {
   });
 }
 
-function sendError(response, status, message) {
+function sendError(response, status, message, extra = {}) {
+  // OpenAI 标准错误结构：{ error: { message, type, code, param? } }
+  const TYPES = {
+    400: "invalid_request_error",
+    401: "invalid_request_error",
+    404: "invalid_request_error",
+    409: "invalid_request_error",
+    429: "rate_limit_error",
+    500: "server_error",
+    502: "server_error",
+    503: "server_error"
+  };
+  const CODES = {
+    400: "invalid_request",
+    401: "invalid_api_key",
+    404: "model_not_found",
+    409: "conflict",
+    429: "rate_limit_exceeded",
+    500: "internal_error",
+    502: "upstream_error",
+    503: "service_unavailable"
+  };
   response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify({ error: { message, type: "invalid_request_error" } }));
+  response.end(JSON.stringify({
+    error: {
+      message,
+      type: extra.type ?? TYPES[status] ?? "invalid_request_error",
+      code: extra.code ?? CODES[status] ?? "invalid_request",
+      ...(extra.param ? { param: extra.param } : {})
+    }
+  }));
 }
 
 function writeSse(response, payload) {
@@ -542,6 +570,25 @@ function writeSse(response, payload) {
 
 function makeId() {
   return `chatcmpl-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+}
+
+/** 粗略 token 估算（无真实上游 usage 时的降级）：~4 字符 ≈ 1 token（中英混合经验值） */
+function estimateTokens(text) {
+  return Math.ceil((String(text ?? "").length) / 4);
+}
+
+/** 构造 usage（prompt = 请求消息文本估算；completion = 返回内容估算） */
+function buildUsage(messages, content) {
+  const prompt = Array.isArray(messages)
+    ? messages.map((m) => {
+      if (typeof m?.content === "string") return m.content;
+      if (Array.isArray(m?.content)) return m.content.map((b) => b?.text ?? b?.content ?? "").join("");
+      return "";
+    }).join("\n")
+    : "";
+  const promptTokens = estimateTokens(prompt);
+  const completionTokens = estimateTokens(content);
+  return { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
 }
 
 function makeConversationId() {

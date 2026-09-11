@@ -22,6 +22,63 @@ curl http://127.0.0.1:3000/v1/chat/completions \
   -d '{"model":"glm-5.3-flash","messages":[{"role":"user","content":"你好"}]}'
 ```
 
+## 接入示例
+
+### curl
+
+```bash
+# 非流式
+curl http://127.0.0.1:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"glm-5.3-flash","messages":[{"role":"user","content":"写一首诗"}]}'
+
+# 流式
+curl -N http://127.0.0.1:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"glm-5.3-flash","stream":true,"messages":[{"role":"user","content":"写一首诗"}]}'
+
+# 工具调用（OpenAI tools 格式）
+curl http://127.0.0.1:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"glm-5.3-flash","messages":[{"role":"user","content":"查询杭州天气"}],
+       "tools":[{"type":"function","function":{"name":"get_weather","description":"查询天气",
+         "parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}]}'
+```
+
+### opencode（agent 客户端）
+
+```bash
+# ~/.config/opencode/opencode.json 或项目 opencode.json
+{
+  "provider": {
+    "glm": {
+      "type": "openai",
+      "name": "GLM (glm2api)",
+      "baseURL": "http://127.0.0.1:3000/v1",
+      "apiKey": "any",
+      "models": { "glm-5.3-flash": { "name": "GLM-5.3-Flash" } }
+    }
+  },
+  "model": "glm"
+}
+# 启动：opencode --provider glm
+```
+
+### AI SDK（TypeScript）
+
+```ts
+import { createOpenAI } from "@ai-sdk/openai";
+import { generateText } from "ai";
+
+const glm = createOpenAI({ baseURL: "http://127.0.0.1:3000/v1", apiKey: "any" });
+
+const { text } = await generateText({
+  model: glm("glm-5.3-flash"),
+  prompt: "用一句话介绍 GLM"
+});
+console.log(text);
+```
+
 ## 管理页
 
 `GET http://127.0.0.1:3000/admin` 提供管理状态页：
