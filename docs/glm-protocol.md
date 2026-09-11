@@ -223,6 +223,27 @@ Body（OpenAI 兼容）:
 
 `chats/` 体系（`chats/new` 创建会话、`chats/remix`）、`users/` 系列、`index/` 系列（检索）、`share/` 系列、`file/` 系列、`audio/`、`images/`、`pipelines/`、`retrieval`、`utils/parser/` 等。前端对话不走 chats 时用 `/api/v2/chat/completions`。
 
+## 🖥️ UI 驱动方案验证（2026-09-11，方案 C 保底）
+
+**结论：UI 驱动（Playwright 操作页面）100% 可行，为匿名通道保底方案。**
+
+- 页面发消息 → 自动回复（长答案）✅；MutationObserver 捕获 DOM 文本增量 ✅（React 消息区文本变化可监听）
+- 页面身份自管理：每次刷新换新 chatglm-deid（X-Device-Id），token 不匹配也 200（旧 token + 新身份可用）
+- 页面每次发消息 `conversation_id=""`（自动新建会话）；已存在会话 ID 服务端风控（复用即 40012）
+- **guest 额度**：`mainchat-api/guest/chat_status` 返回 `total:4, has_chance:true`（每身份约 4 次）
+- **curl/python 直调通道：当前 IP 已确认关闭**（40012 全拒，仅历史首次成功一次；冷却数分钟不恢复——长窗口/永久标记）
+- 页面内 eval fetch：页面代码 200、eval 复刻 40012/40014——差异未能定位（疑页面请求器隐藏机制），**放弃 fetch 复刻路线，走 UI 驱动**
+- 实现方案：glm2api 增加 browser-driver 后端（Node playwright-core + 系统 chromium，或 Python Playwright + HTTP 桥），OpenAI 层不变，对话经浏览器 UI 转发。**待用户决策后实现**（若用户提供新 IP 或登录 token，此方案优先级降低）
+
+## 🔍 页面真实请求格式（2026-09-11 hook 抓到，200 成功样本）
+
+页面对话请求完整格式（与 curl 最小格式的差异）：
+- **X-Device-Id**：来自 `localStorage['chatglm-deid']`（**不来自 token payload**！页面曾用旧 token + 新 chatglm-deid 成功 200——token 与 X-Device-Id 允许不匹配）
+- **X-Exp-Groups**：完整长版（40+ 组：na_android_config...ai_wallet）
+- **body 差异**：带 `project_id`、`meta_data.cogview.rm_label_watermark`、`is_test`、`input_question_type`、`channel`、`draft_id`、`quote_log_id` 等完整字段；`chat_mode` 页面默认 `deep_thinking`、`is_networking: true`
+- **签名**：`MD5(ts-nonce-secret)` secret 仍为 `8a1317a7468aa3ad86e997d08f3f31cb`（页面签名实测匹配 ✅）
+- **40012 现象**：curl 首击成功（200）→ 连续打立即 40012；页面发 1 条成功 → 紧接着手动 fetch（同款签名/身份/body）也 40012。**疑似短窗口频控**（成功后有冷却期，期间请求 40012）。冷却后单次是否恢复待验证。
+
 ## 🎯 匿名对话可行性实测（2026-09-11 浏览器+curl 双通道）
 
 **结论：匿名对话未下线，但 API 直调三重风控（IP/Token/会话），浏览器页面不受影响。**
