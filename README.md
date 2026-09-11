@@ -32,6 +32,24 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 
 对应 JSON API：`/admin/api/status`、`/admin/api/sessions`（POST 导入 / DELETE 删除）。
 
+## 浏览器模式（GLM2API_BROWSER=1，方案 C）
+
+当上游对 API 直调风控（40012）时，可用**浏览器驱动模式**绕过：
+对话经 Playwright 控制的真实浏览器页面（chatglm.cn 匿名访客）发出，
+身份/会话/额度由页面自动管理，网关只负责把页面回复增量转发为 OpenAI SSE。
+
+```bash
+# 需要系统 chromium（/usr/bin/chromium，可用 CHROMIUM_PATH 覆盖）
+npm i playwright-core
+GLM2API_BROWSER=1 node src/server.js
+```
+
+特点：
+- 启动时预初始化浏览器（避免首次请求冷启动超时）
+- 流式/非流式均支持；自动跳过模型思考过程（只转发正文）
+- 单浏览器串行处理（busy 时 409）；思考模式回复慢（~10-30s），请调大客户端超时
+- 会话池（token 模式）与浏览器模式互斥，二选一
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |

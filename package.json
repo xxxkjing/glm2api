@@ -9,5 +9,8 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0"
   }
 }

@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import { config } from "./config.js";
 import { GuestSessionPool, GuestSession } from "./services/guest-session.js";
 import { handleOpenAiRequest } from "./routes/openai-routes.js";
+import { chatStream as browserChat } from "./services/browser-driver.js";
 
 function loadSessionPool() {
   try {
@@ -40,6 +41,17 @@ function checkAuth(request) {
 const sessionPool = loadSessionPool();
 console.log(`[glm2api] loaded ${sessionPool.size} guest sessions from ${config.dataFile}`);
 
+// 浏览器模式：启动时预初始化浏览器（避免首次请求冷启动超时）
+if (config.browserMode) {
+  import("./services/browser-driver.js").then(({ initBrowser }) => {
+    initBrowser().then(() => {
+      console.log("[glm2api] browser driver ready");
+    }).catch((error) => {
+      console.error("[glm2api] browser driver init failed:", error.message);
+    });
+  });
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
@@ -50,7 +62,10 @@ const server = createServer(async (request, response) => {
   }
 
   try {
-    const handled = await handleOpenAiRequest(request, response, url, { sessionPool });
+    const handled = await handleOpenAiRequest(request, response, url, {
+      sessionPool,
+      browserChat: config.browserMode ? browserChat : null
+    });
     if (!handled) {
       response.writeHead(404, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { message: "Not Found" } }));

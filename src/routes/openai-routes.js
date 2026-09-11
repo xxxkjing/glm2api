@@ -34,7 +34,8 @@ function recordRequest({ model, success, rateLimited = false }) {
 
 export async function handleOpenAiRequest(request, response, url, {
   sessionPool,
-  streamChat = defaultStreamChat
+  streamChat = defaultStreamChat,
+  browserChat = null
 }) {
   if (url.pathname === "/v1/models" && request.method === "GET") {
     response.writeHead(200, { "content-type": "application/json" });
@@ -93,7 +94,7 @@ export async function handleOpenAiRequest(request, response, url, {
 
   if (url.pathname === "/v1/chat/completions" && request.method === "POST") {
     const body = await readJsonBody(request);
-    await handleChatCompletion(request, response, body, { sessionPool, streamChat });
+    await handleChatCompletion(request, response, body, { sessionPool, streamChat, browserChat });
     return true;
   }
 
@@ -242,11 +243,80 @@ function renderAdminPage(sessionPool) {
 </html>`;
 }
 
-async function handleChatCompletion(request, response, body, { sessionPool, streamChat }) {
+async function handleChatCompletion(request, response, body, { sessionPool, streamChat, browserChat }) {
   const model = body.model ?? config.defaultModel;
   const messages = body.messages ?? [];
   const stream = body.stream === true;
   const conversationId = body.conversation_id ?? makeConversationId();
+
+  // 浏览器模式（方案 C）：不依赖会话池，直接经浏览器页面对话
+  if (browserChat) {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const text = typeof lastUser?.content === "string"
+      ? lastUser.content
+      : (Array.isArray(lastUser?.content) ? lastUser.content.map((b) => b.text ?? "").join("") : "");
+    const events = browserChat({ text, signal: request.signal });
+    if (stream) {
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive"
+      });
+      const completionId = makeId();
+      writeSse(response, {
+        id: completionId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
+      });
+      for await (const ev of events) {
+        if (ev.type === "content") {
+          writeSse(response, {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model,
+            choices: [{ index: 0, delta: { content: ev.content }, finish_reason: null }]
+          });
+        } else if (ev.type === "end") {
+          writeSse(response, {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+          });
+          response.end("data: [DONE]\n\n");
+          return;
+        } else if (ev.type === "error") {
+          sendError(response, 502, `Upstream error: ${ev.error.message}`);
+          return;
+        }
+      }
+      response.end("data: [DONE]\n\n");
+      return;
+    }
+    // 非流式聚合
+    let fullContent = "";
+    for await (const ev of events) {
+      if (ev.type === "content") fullContent += ev.content;
+      if (ev.type === "error") {
+        return sendError(response, 502, `Upstream error: ${ev.error.message}`);
+      }
+    }
+    recordRequest({ model, success: true });
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      id: makeId(),
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [{ index: 0, message: { role: "assistant", content: fullContent }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+    }));
+    return;
+  }
 
   const session = sessionPool.take();
   if (!session) {

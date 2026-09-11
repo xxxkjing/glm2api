@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import { GuestSession, GuestSessionPool, decodeJwtPayload } from "../src/services/guest-session.js";
 
-const SAMPLE_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiaXNfZ3Vlc3QiOnRydWUsImV4cCI6MTc4OTA4NjY5OSwiaWF0IjoxNzg5MDAwMjk5fQ.signature";
+// 样例 token：exp 设为远期（2099-01-01），避免随日期过期
+const SAMPLE_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0IiwiaXNfZ3Vlc3QiOnRydWUsImV4cCI6NDA3MDkwODgwMCwiaWF0IjoxNzg5MDAwMjk5fQ.signature";
 
 test("decodeJwtPayload parses guest claims", () => {
   const payload = decodeJwtPayload(SAMPLE_TOKEN);
@@ -16,16 +17,16 @@ test("GuestSession stores token and device", () => {
   assert.equal(session.token, SAMPLE_TOKEN);
   assert.equal(session.deviceId, "dev-1");
   assert.equal(session.role, "guest");
-  // 样例 token exp=1789086699（2026-09-10），当前时间应未过期
+  // 样例 token exp=4070908800（2099-01-01），当前时间应未过期
   assert.equal(session.isExpired(Date.now()), false);
 });
 
 test("GuestSession isExpired respects exp", () => {
   const session = new GuestSession({ token: SAMPLE_TOKEN, deviceId: "dev-1" });
   // 在 exp 之前：未过期
-  assert.equal(session.isExpired(1789086698000), false);
+  assert.equal(session.isExpired(4070908799000), false);
   // 在 exp 之后：过期
-  assert.equal(session.isExpired(1789086700000), true);
+  assert.equal(session.isExpired(4070908801000), true);
 });
 
 test("GuestSession detects clearly expired token", () => {
