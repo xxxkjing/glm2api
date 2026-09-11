@@ -86,8 +86,38 @@ export function createHandler({ sessionPool, browserChat = null }) {
 
     if (!checkAuth(request)) {
       response.writeHead(401, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: { message: "Invalid API key" } }));
+      response.end(
+        JSON.stringify({ error: { message: "Invalid API key" } }),
+      );
       return;
+    }
+
+    // 安全默认：未配置 API key 时，管理端路由仅允许本机访问（公网部署者通常应配 key）
+    const isAdminPath = url.pathname === "/admin" || url.pathname.startsWith("/admin/");
+    if (isAdminPath && !config.apiKey) {
+      const remote = (request.socket?.remoteAddress ?? request.headers["x-forwarded-for"] ?? "").toString();
+      const local =
+        remote === "127.0.0.1" ||
+        remote === "::1" ||
+        remote === "::ffff:127.0.0.1" ||
+        remote.startsWith("10.") ||
+        remote.startsWith("192.168.") ||
+        remote.startsWith("172.16.") ||
+        remote.startsWith("172.17.") ||
+        remote.startsWith("172.18.") ||
+        remote.startsWith("172.19.") ||
+        remote.startsWith("172.2") ||
+        remote.startsWith("172.30.") ||
+        remote.startsWith("172.31.");
+      if (!local) {
+        response.writeHead(403, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            error: { message: "Admin requires API key on non-local access", type: "invalid_request_error", code: "admin_requires_key" },
+          }),
+        );
+        return;
+      }
     }
 
     if (request.method === "OPTIONS") {
