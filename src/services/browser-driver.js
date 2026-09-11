@@ -69,6 +69,8 @@ export async function rotateIdentity() {
   await page.context().clearCookies().catch(() => {});
   await page.reload({ waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
   await waitFor("textarea", 30000).catch(() => {});
+  // 新身份冷启动：给页面额外时间完成身份建立与建议区渲染
+  await page.waitForTimeout(4000);
   chatCount = 0;
 }
 
