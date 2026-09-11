@@ -553,7 +553,10 @@ function sendError(response, status, message, extra = {}) {
     502: "upstream_error",
     503: "service_unavailable"
   };
-  response.writeHead(status, { "content-type": "application/json" });
+  const headers = { "content-type": "application/json" };
+  // 限流友好：429 带 Retry-After（冷却窗口参考，客户端可据此退避）
+  if (status === 429) headers["retry-after"] = String(extra.retryAfter ?? 30);
+  response.writeHead(status, headers);
   response.end(JSON.stringify({
     error: {
       message,
