@@ -9,10 +9,13 @@ const EXECUTABLE = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
 const POLL_MS = Number(process.env.BROWSER_POLL_MS || 300);
 const IDLE_BEFORE_DONE_MS = Number(process.env.BROWSER_IDLE_MS || 2500);
 const MAX_WAIT_MS = Number(process.env.BROWSER_MAX_WAIT_MS || 120000);
+// 每身份最多对话次数（guest 额度约 4 次/身份，留 1 次余量）
+const MAX_CHAT_PER_IDENTITY = Number(process.env.BROWSER_MAX_CHAT || 3);
 
 let browser = null;
 let page = null;
 let busy = false;
+let chatCount = 0;
 
 /** 等待页面文本选择器出现（轮询，避免依赖 React 渲染时机） */
 async function waitFor(selector, timeout = 30000) {
@@ -52,6 +55,21 @@ export async function closeBrowser() {
     browser = null;
     page = null;
   }
+}
+
+/** 轮换匿名身份：清 cookie + 换 chatglm-deid + 刷新页面（guest 额度用尽前主动换身份） */
+export async function rotateIdentity() {
+  if (!page) return;
+  await page.evaluate(() => {
+    localStorage.clear();
+    const newId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem("chatglm-deid", newId);
+  });
+  await page.context().clearCookies().catch(() => {});
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+  await waitFor("textarea", 30000).catch(() => {});
+  chatCount = 0;
 }
 
 /** 向输入框填入文本（React 受控组件需用原生 setter + input 事件） */
@@ -170,6 +188,11 @@ export async function* chatStream({ text, thinking = false, signal }) {
     if (!done && !sawContent) {
       yield { type: "error", error: new Error("no reply within timeout") };
       return;
+    }
+    // 对话成功：计数，达到阈值主动轮换身份
+    chatCount += 1;
+    if (chatCount >= MAX_CHAT_PER_IDENTITY) {
+      await rotateIdentity();
     }
     yield { type: "end" };
   } finally {
