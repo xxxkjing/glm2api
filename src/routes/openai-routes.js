@@ -2,6 +2,8 @@
 import { config } from "../config.js";
 import { streamChat as defaultStreamChat } from "../services/glm-chat.js";
 import { GuestSessionPool } from "../services/guest-session.js";
+import { createToolSieve, extractToolAwareOutput, splitToolAwareEvents } from "../services/tool-sieve.js";
+import { buildPromptWithTools, normalizeMessagesForGlM } from "../services/tool-prompt.js";
 
 // 请求统计（内存）
 const stats = {
@@ -249,6 +251,13 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
   const stream = body.stream === true;
   const conversationId = body.conversation_id ?? makeConversationId();
 
+  // 工具调用：构建带工具 prompt 的 messages
+  const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+  const { messages: promptMessages, policy } = hasTools
+    ? buildPromptWithTools({ messages, toolChoice: body.tool_choice, tools: body.tools })
+    : { messages: messages, policy: { allowedToolNames: [], mode: "none" } };
+  const toolNames = policy.allowedToolNames;
+
   // 浏览器模式（方案 C）：不依赖会话池，直接经浏览器页面对话
   if (browserChat) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
@@ -270,22 +279,31 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
         model,
         choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
       });
+      const sieve = hasTools ? createToolSieve(toolNames) : null;
+      let hasToolCalls = false;
       for await (const ev of events) {
         if (ev.type === "content") {
-          writeSse(response, {
-            id: completionId,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model,
-            choices: [{ index: 0, delta: { content: ev.content }, finish_reason: null }]
-          });
+          if (sieve) {
+            hasToolCalls = writeSieveEvents(response, completionId, model, sieve.push(ev.content), hasToolCalls);
+          } else {
+            writeSse(response, {
+              id: completionId,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [{ index: 0, delta: { content: ev.content }, finish_reason: null }]
+            });
+          }
         } else if (ev.type === "end") {
+          if (sieve) {
+            hasToolCalls = writeSieveEvents(response, completionId, model, sieve.flush(), hasToolCalls);
+          }
           writeSse(response, {
             id: completionId,
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
             model,
-            choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+            choices: [{ index: 0, delta: {}, finish_reason: hasToolCalls ? "tool_calls" : "stop" }]
           });
           response.end("data: [DONE]\n\n");
           return;
@@ -294,6 +312,16 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
           return;
         }
       }
+      if (sieve) {
+        hasToolCalls = writeSieveEvents(response, completionId, model, sieve.flush(), hasToolCalls);
+      }
+      writeSse(response, {
+        id: completionId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [{ index: 0, delta: {}, finish_reason: hasToolCalls ? "tool_calls" : "stop" }]
+      });
       response.end("data: [DONE]\n\n");
       return;
     }
@@ -329,7 +357,7 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
       token: session.token,
       deviceId: session.deviceId,
       conversationId,
-      messages,
+      messages: normalizeMessagesForGlM(promptMessages, toolNames),
       model,
       signal: request.signal
     });
@@ -348,22 +376,31 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
         model,
         choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }]
       });
+      const sieve = hasTools ? createToolSieve(toolNames) : null;
+      let hasToolCalls = false;
       for await (const ev of events) {
         if (ev.type === "content") {
-          writeSse(response, {
-            id: completionId,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model,
-            choices: [{ index: 0, delta: { content: ev.content }, finish_reason: null }]
-          });
+          if (sieve) {
+            hasToolCalls = writeSieveEvents(response, completionId, model, sieve.push(ev.content), hasToolCalls);
+          } else {
+            writeSse(response, {
+              id: completionId,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [{ index: 0, delta: { content: ev.content }, finish_reason: null }]
+            });
+          }
         } else if (ev.type === "end") {
+          if (sieve) {
+            hasToolCalls = writeSieveEvents(response, completionId, model, sieve.flush(), hasToolCalls);
+          }
           writeSse(response, {
             id: completionId,
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
             model,
-            choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+            choices: [{ index: 0, delta: {}, finish_reason: hasToolCalls ? "tool_calls" : "stop" }]
           });
           response.end("data: [DONE]\n\n");
           return;
@@ -379,6 +416,16 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
           return;
         }
       }
+      if (sieve) {
+        hasToolCalls = writeSieveEvents(response, completionId, model, sieve.flush(), hasToolCalls);
+      }
+      writeSse(response, {
+        id: completionId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [{ index: 0, delta: {}, finish_reason: hasToolCalls ? "tool_calls" : "stop" }]
+      });
       response.end("data: [DONE]\n\n");
       return;
     }
@@ -390,6 +437,12 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
         fullContent += ev.content;
       }
     }
+    // 工具调用解析（<tool> XML → OpenAI tool_calls）
+    const { content: cleanContent, toolCalls } = extractToolAwareOutput(fullContent, toolNames);
+    const hasToolCalls = toolCalls.length > 0;
+    const message = hasToolCalls
+      ? { role: "assistant", content: cleanContent || null, tool_calls: toolCalls }
+      : { role: "assistant", content: cleanContent };
     recordRequest({ model, success: true });
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
@@ -399,8 +452,8 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
       model,
       choices: [{
         index: 0,
-        message: { role: "assistant", content: fullContent },
-        finish_reason: "stop"
+        message,
+        finish_reason: hasToolCalls ? "tool_calls" : "stop"
       }],
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
     }));
@@ -409,6 +462,41 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
     recordRequest({ model, success: false });
     sendError(response, 502, `Upstream error: ${error.message}`);
   }
+}
+
+/**
+ * 把 tool-sieve 产出的事件（text / tool_calls）写成 OpenAI 流式 SSE。
+ * @returns {boolean} 是否产生过 tool_calls
+ */
+function writeSieveEvents(response, completionId, model, events, hasToolCalls) {
+  let called = hasToolCalls;
+  for (const se of events) {
+    if (se.type === "text") {
+      writeSse(response, {
+        id: completionId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [{ index: 0, delta: { content: se.text }, finish_reason: null }]
+      });
+    } else if (se.type === "tool_calls") {
+      called = true;
+      const toolCalls = (se.calls ?? []).map((c, i) => ({
+        index: i,
+        id: c.id,
+        type: c.type,
+        function: c.function
+      }));
+      writeSse(response, {
+        id: completionId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [{ index: 0, delta: { tool_calls: toolCalls }, finish_reason: null }]
+      });
+    }
+  }
+  return called;
 }
 
 function buildStatsPayload() {
