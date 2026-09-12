@@ -261,9 +261,16 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
   // 浏览器模式（方案 C）：不依赖会话池，直接经浏览器页面对话
   if (browserChat) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    const text = typeof lastUser?.content === "string"
+    const userText = typeof lastUser?.content === "string"
       ? lastUser.content
       : (Array.isArray(lastUser?.content) ? lastUser.content.map((b) => b.text ?? "").join("") : "");
+    // 浏览器模式：页面是纯文本界面，看不到 OpenAI 的 tools 参数；
+    // 有工具时把工具提示词（首个 system 消息）拼进文本，让页面模型输出 <tool> 标签
+    let text = userText;
+    if (hasTools && promptMessages[0]?.role === "system") {
+      const toolPromptText = promptMessages[0].content?.[0]?.text ?? "";
+      if (toolPromptText) text = `${toolPromptText}\n\n用户问题：${userText}`;
+    }
     const events = browserChat({ text, signal: request.signal });
     if (stream) {
       response.writeHead(200, {
@@ -333,6 +340,14 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
         return sendError(response, 502, `Upstream error: ${ev.error.message}`);
       }
     }
+    // 工具调用解析（浏览器模式同样支持 <tool> XML → tool_calls）
+    const { content: cleanContent, toolCalls } = hasTools
+      ? extractToolAwareOutput(fullContent, toolNames)
+      : { content: fullContent, toolCalls: [] };
+    const hasToolCalls = toolCalls.length > 0;
+    const message = hasToolCalls
+      ? { role: "assistant", content: cleanContent || null, tool_calls: toolCalls }
+      : { role: "assistant", content: cleanContent };
     recordRequest({ model, success: true });
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
@@ -340,7 +355,7 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       model,
-      choices: [{ index: 0, message: { role: "assistant", content: fullContent }, finish_reason: "stop" }],
+      choices: [{ index: 0, message, finish_reason: hasToolCalls ? "tool_calls" : "stop" }],
       usage: buildUsage(messages, fullContent)
     }));
     return;
