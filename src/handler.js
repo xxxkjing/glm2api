@@ -154,8 +154,12 @@ export function createHandler({ sessionPool, browserChat = null }) {
       console.error("request error:", error);
       if (!response.headersSent) {
         response.writeHead(500, { "content-type": "application/json" });
+        // 透传错误信息（脱敏）：远程排查时能直接看到 browser/upstream 真实原因
+        const msg = (error?.message || "Internal Server Error")
+          .replace(/(Bearer\s+)?eyJ[a-zA-Z0-9_.-]{20,}/g, "$1<token>")
+          .replace(/(token["']?\s*[:=]\s*["']?)[^"',\s]{20,}/gi, "$1<redacted>");
         response.end(
-          JSON.stringify({ error: { message: "Internal Server Error" } }),
+          JSON.stringify({ error: { message: msg, type: "server_error", code: "internal_error" } }),
         );
       } else {
         response.destroy(error);
