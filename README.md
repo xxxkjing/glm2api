@@ -79,6 +79,15 @@ const { text } = await generateText({
 console.log(text);
 ```
 
+## 服务管理（scripts/ctl.js）
+
+```bash
+node scripts/ctl.js start [--browser] [port]   # 启动（--browser 开浏览器驱动模式）
+node scripts/ctl.js stop [port]                # 停止（PID 文件 + 端口进程清理）
+node scripts/ctl.js status                     # 查看状态
+node scripts/ctl.js restart [--browser] [port] # 重启
+```
+
 ## 管理页
 
 `GET http://127.0.0.1:3000/admin` 提供管理状态页：
