@@ -114,6 +114,11 @@ async function readLastReply() {
       const ai = after.indexOf(anchor);
       if (ai >= 0) after = after.slice(0, ai);
     }
+    // 清理联网搜索引用尾巴：正文出现「【turn0...」即截断（正文已结束，后面是来源引用/建议区）
+    {
+      const turnIdx = after.search(/【\s*turn\d/i);
+      if (turnIdx >= 0) after = after.slice(0, turnIdx);
+    }
     // 结构性清理：正文后连着的「建议提问区」（≥2 个以？结尾的短行）从第一个问句处切掉
     {
       const lines = after.split("\n");
