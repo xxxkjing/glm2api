@@ -66,6 +66,8 @@ function parseBody(name, bodyText) {
   let parsed = null;
   try { parsed = JSON.parse(decoded); } catch {
     const cleaned = decoded
+      .replace(/\u201c|\u201d/g, '"')   // 全角双引号 “ ” → "
+      .replace(/\u2018|\u2019/g, "'")   // 全角单引号 ‘ ’ → '
       .replace(/\/\/[^\n]*/g, "")
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:/g, '"$1":')

@@ -133,14 +133,19 @@ export function buildToolPrompt(tools, toolChoice) {
     "3) Use exactly a listed tool name and only fields from its schema.",
     "4) One tag = one call. Do not wrap multiple calls in one tag.",
     "5) Emit only calls that can be made now; wait for results before dependent calls.",
-    "6) Do NOT use markdown code fences around tool calls."
+    "6) Do NOT use markdown code fences around tool calls.",
+    "",
+    "中文要求（同样必须遵守）：",
+    "7) 如果用户请求的事项需要调用工具来完成（查天气/搜索/计算/查资料等），你必须输出 <tool> 标签，绝不能只给文字回答。",
+    "8) 输出格式示例：<tool name=\"get_weather\">{\"city\":\"北京\"}</tool>",
+    "9) 不要用 markdown 代码块包住工具调用，直接输出标签本身。"
   ];
 
   if (policy.mode === "required") {
-    parts.push("7) You MUST call at least one tool this turn.");
+    parts.push("10) You MUST call at least one tool this turn. 这一轮必须至少调用一次工具。");
   }
   if (policy.mode === "forced") {
-    parts.push(`7) You MUST call this exact tool: ${policy.forcedName}.`);
+    parts.push(`10) You MUST call this exact tool: ${policy.forcedName}. 这一轮必须调用指定工具。`);
   }
 
   const prompt = parts.join("\n");

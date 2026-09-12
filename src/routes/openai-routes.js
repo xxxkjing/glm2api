@@ -345,8 +345,9 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
       ? extractToolAwareOutput(fullContent, toolNames)
       : { content: fullContent, toolCalls: [] };
     const hasToolCalls = toolCalls.length > 0;
+    // 有 tool_calls 时按 OpenAI 规范 content 置 null（避免 tag 外杂音文本干扰客户端）
     const message = hasToolCalls
-      ? { role: "assistant", content: cleanContent || null, tool_calls: toolCalls }
+      ? { role: "assistant", content: null, tool_calls: toolCalls }
       : { role: "assistant", content: cleanContent };
     recordRequest({ model, success: true });
     response.writeHead(200, { "content-type": "application/json" });

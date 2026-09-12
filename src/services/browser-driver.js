@@ -109,10 +109,32 @@ async function readLastReply() {
     // 去掉后续用户气泡
     const uidx = after.indexOf("访客_");
     if (uidx >= 0) after = after.slice(0, uidx);
-    // 去掉尾部引导/建议提问区
-    for (const stop of ["你能做什么？", "你会做什么？", "你有什么特别的技能？", "推荐一些好玩的游戏？", "和我聊聊天吧", "内容由AI生成", "如何生成API的鉴权凭证？", "如何测试上下文窗口的token处理能力？", "如何使用这个token进行API调用？", "测试结果如何反馈？", "有没有其他测", "和你聊聊天吧"]) {
-      const si = after.indexOf(stop);
-      if (si >= 0) after = after.slice(0, si);
+    // 结构性清理：页脚锚点 + 常见单句引导语（不依赖动态建议区文案）
+    for (const anchor of ["内容由AI生成", "GLM-Flash极致", "和我聊聊天吧", "和你聊聊天吧", "用户协议", "隐私政策", "开源模型", "你会做什么？", "你能做什么？", "有什么特别的技能？", "推荐一些好玩的游戏？"]) {
+      const ai = after.indexOf(anchor);
+      if (ai >= 0) after = after.slice(0, ai);
+    }
+    // 结构性清理：正文后连着的「建议提问区」（≥2 个以？结尾的短行）从第一个问句处切掉
+    {
+      const lines = after.split("\n");
+      let cutLine = -1;
+      let qCount = 0;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const ln = lines[i].trim();
+        if (ln.endsWith("？") || ln.endsWith("?")) {
+          if (qCount === 0) cutLine = i;
+          qCount += 1;
+          if (qCount >= 2) {
+            cutLine = i;
+            break;
+          }
+        } else if (ln) {
+          if (qCount > 0) break; // 问句区之后又出现正文行，停止回溯
+        }
+      }
+      if (qCount >= 2 && cutLine >= 0) {
+        after = lines.slice(0, cutLine).join("\n");
+      }
     }
     // 思考结束标记后再截正文；无标记时正文未开始（全部视为思考中）
     const thinkEnd = after.indexOf("思考结束");
