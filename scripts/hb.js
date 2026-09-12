@@ -23,7 +23,7 @@ function runTests() {
 let { out: testOut, fail: failLine, ipcFlaky } = runTests();
 let attempts = 1;
 // IPC 反序列化错误是环境 flaky（非断言失败），最多重试 2 次；普通断言失败也重试 1 次
-while (failLine && attempts < (ipcFlaky ? 3 : 2)) {
+while (failLine && attempts < (ipcFlaky ? 4 : 2)) {
   console.log(`  (attempt ${attempts}: ${ipcFlaky ? "IPC flaky" : "fail"} — retrying…)`);
   ({ out: testOut, fail: failLine, ipcFlaky } = runTests());
   attempts++;
