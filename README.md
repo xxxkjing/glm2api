@@ -88,6 +88,15 @@ node scripts/ctl.js status                     # 查看状态
 node scripts/ctl.js restart [--browser] [port] # 重启
 ```
 
+## 工具脚本（scripts/）
+
+```bash
+node scripts/import-session.js <chatglm_token>   # 手动导入访客 token 到会话池
+node scripts/auto-fetch-token.js [--quiet]       # Playwright 自动抓 chatglm.cn 匿名 token 并注入会话池
+node scripts/hb.js                               # 心跳体检：回归测试/git/上游 bundle/QQ 一键聚合
+node scripts/ctl.js start|stop|status|restart    # 服务管理（见上节）
+```
+
 ## 管理页
 
 `GET http://127.0.0.1:3000/admin` 提供管理状态页：
