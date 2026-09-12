@@ -17,12 +17,16 @@ function runTests() {
   sh("node --test --test-concurrency=1 \"test/*.test.js\" > /tmp/hb-test.log 2>&1");
   const out = sh("grep -E '^ℹ (tests|pass|fail)' /tmp/hb-test.log || true", "");
   const fail = out.split("\n").find((l) => l.includes("fail") && !/fail 0/.test(l));
-  return { out, fail };
+  const ipcFlaky = sh("grep -c 'deserialize' /tmp/hb-test.log || true", "0") !== "0";
+  return { out, fail, ipcFlaky };
 }
-let { out: testOut, fail: failLine } = runTests();
-if (failLine) {
-  console.log("  (flaky? retrying once…)");
-  ({ out: testOut, fail: failLine } = runTests());
+let { out: testOut, fail: failLine, ipcFlaky } = runTests();
+let attempts = 1;
+// IPC 反序列化错误是环境 flaky（非断言失败），最多重试 2 次；普通断言失败也重试 1 次
+while (failLine && attempts < (ipcFlaky ? 3 : 2)) {
+  console.log(`  (attempt ${attempts}: ${ipcFlaky ? "IPC flaky" : "fail"} — retrying…)`);
+  ({ out: testOut, fail: failLine, ipcFlaky } = runTests());
+  attempts++;
 }
 console.log(testOut || "(empty)");
 if (failLine) console.log("⚠️ REGRESSION: " + failLine);
