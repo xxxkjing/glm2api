@@ -93,7 +93,25 @@ switch (cmd) {
       console.log(`already running pid=${readPid()}`);
     } else {
       const pid = start({ browser, port });
-      console.log(`started pid=${pid} (log: ${LOG_FILE})`);
+      // 等待就绪：轮询日志中 "browser driver ready"（浏览器模式初始化较慢，最多等 40s）
+      const t0 = Date.now();
+      let ready = false;
+      while (Date.now() - t0 < 40000) {
+        if (browser) {
+          try {
+            const log = execSync(`tail -50 ${LOG_FILE} 2>/dev/null`, { encoding: "utf8" });
+            if (log.includes("browser driver ready")) { ready = true; break; }
+          } catch {}
+        } else {
+          // 非浏览器模式：/v1/models 通即可
+          try {
+            const ok = execSync(`curl -s --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:${port ?? 3000}/v1/models`, { encoding: "utf8" }).trim();
+            if (ok === "200") { ready = true; break; }
+          } catch {}
+        }
+        execSync("sleep 1");
+      }
+      console.log(`started pid=${pid} ${ready ? "ready ✅" : "(still booting — wait or check log)"}`);
     }
     break;
   }
