@@ -271,3 +271,11 @@ Body（OpenAI 兼容）:
 ## 结论
 
 **匿名调用 GLM 完全可行**（auth 无 PoW、models OpenAI 兼容、对话接口标准 SSE），唯一硬障碍是阿里云滑块 captcha 的自动化过验证。这决定 glm2api 是否走"匿名模式"（每次对话前过滑块）还是结合其他通道。障碍明确、可评估、可决策。
+## S2 工具调用真实链路验证（2026-09-13）
+
+**结论：工具调用（tool_calls）在真实上游可用，但每个 guest token 只有短暂窗口。**
+
+- 验证过程：token 会话池直调 + `get_weather` tools 请求 → 上游返回模型发起的 `tool_calls`（`{"city":"北京"}`，finish_reason: "tool_calls"，content: null）——**S2 的 tool-sieve 解析在真实链路上正确工作** ✅
+- **token 窗口机制**：成功 1-2 次后该 token 即被上游限（后续 40012）→ 网关 markRateLimited 冷却 30 分钟 → 需要大量 token 轮换池支撑持续使用
+- **IP 级风控依旧**：全新 token（auto-fetch）直调仍 40012——IP 风控与 token 新鲜度无关，只有"窗口期"token 偶发放行
+- **当前环境可用通道**：浏览器驱动（方案 C）稳定但不支持工具调用（页面 UI 无法传 tools 定义）；token 直调支持工具调用但受 IP 风控 + 单 token 短窗限制
