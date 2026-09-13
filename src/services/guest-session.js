@@ -120,9 +120,15 @@ export class GuestSessionPool {
   }
 
   static fromJSON(data) {
-    const pool = new GuestSessionPool((data?.sessions ?? []).map((d) => GuestSession.fromJSON(d)).filter(Boolean));
-    if (data?.cooling) {
-      for (const c of data.cooling) {
+    // 兼容两种数据形态：
+    //   A. { sessions: [...], cooling: [...] }            （本服务保存格式）
+    //   B. { sessions: { sessions: [...], cooling: [...] } } （部分写入端会双重嵌套）
+    const inner = data && !Array.isArray(data.sessions) && typeof data.sessions === "object" && Array.isArray(data.sessions.sessions)
+      ? data.sessions
+      : data;
+    const pool = new GuestSessionPool((inner?.sessions ?? []).map((d) => GuestSession.fromJSON(d)).filter(Boolean));
+    if (inner?.cooling) {
+      for (const c of inner.cooling) {
         if (c?.token && c?.until) {
           pool.cooling.set(c.token, c.until);
         }
