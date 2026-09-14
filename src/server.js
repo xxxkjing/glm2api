@@ -49,36 +49,52 @@ console.log(`[glm2api] loaded ${sessionPool.size} guest sessions`);
 // 浏览器模式：启动时预初始化浏览器（避免首次请求冷启动超时）
 // 失败自动重试（最多 3 次，指数退避），避免一次失败后服务永久 500
 let browserChatImpl = null;
+let browserInitPromise = null;
 let browserInitAttempts = 0;
 const BROWSER_MAX_ATTEMPTS = 3;
 
-async function initBrowserWithRetry() {
-  const { initBrowser, chatStream } = await import("./services/browser-driver.js");
-  while (browserInitAttempts < BROWSER_MAX_ATTEMPTS) {
-    browserInitAttempts++;
+// 初始化浏览器（带并发锁：同时只有一个初始化在跑）
+async function ensureBrowser() {
+  if (browserChatImpl) return;
+  if (browserInitPromise) return browserInitPromise;
+
+  browserInitPromise = (async () => {
     try {
-      await initBrowser();
-      browserChatImpl = chatStream;
-      console.log(`[glm2api] browser driver ready (attempt ${browserInitAttempts})`);
-      return;
-    } catch (error) {
-      console.error(`[glm2api] browser driver init failed (${browserInitAttempts}/${BROWSER_MAX_ATTEMPTS}):`, error.message);
-      if (browserInitAttempts < BROWSER_MAX_ATTEMPTS) {
-        const delay = 5000 * Math.pow(2, browserInitAttempts - 1); // 5s, 10s
-        console.log(`[glm2api] retrying browser init in ${delay / 1000}s...`);
-        await new Promise((r) => setTimeout(r, delay));
+      const { initBrowser, chatStream } = await import("./services/browser-driver.js");
+      while (browserInitAttempts < BROWSER_MAX_ATTEMPTS) {
+        browserInitAttempts++;
+        try {
+          await initBrowser();
+          browserChatImpl = chatStream;
+          console.log(`[glm2api] browser driver ready (attempt ${browserInitAttempts})`);
+          return;
+        } catch (error) {
+          console.error(`[glm2api] browser driver init failed (${browserInitAttempts}/${BROWSER_MAX_ATTEMPTS}):`, error.message);
+          if (browserInitAttempts < BROWSER_MAX_ATTEMPTS) {
+            const delay = 5000 * Math.pow(2, browserInitAttempts - 1); // 5s, 10s
+            console.log(`[glm2api] retrying browser init in ${delay / 1000}s...`);
+            await new Promise((r) => setTimeout(r, delay));
+          }
+        }
       }
+      console.error(`[glm2api] browser driver init FAILED after ${BROWSER_MAX_ATTEMPTS} attempts — will retry lazily on next request`);
+    } finally {
+      browserInitPromise = null; // 允许下次请求再次尝试（自愈）
     }
-  }
-  console.error(`[glm2api] browser driver init FAILED after ${BROWSER_MAX_ATTEMPTS} attempts — chat will return 500 until restart`);
+  })();
+
+  return browserInitPromise;
 }
 
 if (config.browserMode) {
-  initBrowserWithRetry();
+  ensureBrowser().catch(() => {}); // 启动时预初始化（失败也不阻塞服务启动）
 }
 
-// 包装成可直接调用的函数；浏览器未就绪时抛错走 500
-function browserChatCallable(options) {
+// 包装成可直接调用的函数；浏览器未就绪时现场尝试初始化（惰性自愈）
+async function browserChatCallable(options) {
+  if (!browserChatImpl) {
+    await ensureBrowser(); // 未就绪 → 现场尝试（含重试），成功后继续
+  }
   if (!browserChatImpl) {
     const err = new Error("browser driver not ready");
     throw err;

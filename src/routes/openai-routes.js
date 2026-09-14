@@ -271,7 +271,7 @@ async function handleChatCompletion(request, response, body, { sessionPool, stre
       const toolPromptText = promptMessages[0].content?.[0]?.text ?? "";
       if (toolPromptText) text = `${toolPromptText}\n\n用户问题：${userText}`;
     }
-    const events = browserChat({ text, signal: request.signal });
+    const events = await browserChat({ text, signal: request.signal });
     if (stream) {
       response.writeHead(200, {
         "content-type": "text/event-stream",
